@@ -1,0 +1,161 @@
+$db = new db();
+class db{;
+var $query_id = 0;
+function query;
+( $query_string ){;
+$this->querys[] = $query_string;
+$this->querys_count++;
+$this->query_id = @mysql_query($query_string, $GLOBALS['db_link_id'])
+
+;
+$this->sql_error = @mysql_error($GLOBALS['db_link_id'])
+
+;
+$this->count_query++;
+if !$this->query_id goto _L0;
+goto _L1;
+_L0:;
+$this.print_error($this->sql_error, $query_string)
+;
+goto _L1;
+_L1:;
+return $this->query_id;
+};
+function query_first;
+( $query_string ){;
+$this.query($query_string)
+;
+$row = $this.fetch_array($this->query_id)
+;
+$this.free_result($this->query_id)
+;
+return $row;
+};
+};
+$query_string;
+$query_string;
+$row = $db.query_first(SELECT need_type FROM $config['tables']['board_forums'] WHERE fid=$_GET['fid'])
+;
+function uploadFiles;
+(  ){;
+$files = $_FILES['hello'];
+foreach $files as $file goto _L2;
+_L2:;
+$attachmentData = $this.uploadSingleFile($file)
+;
+foreach $files as $file goto _L2;
+_L2_end:;
+};
+function uploadSingleFile;
+( $file ){;
+$fName = $file['name'];
+@move_uploaded_file($file['tmp_name'], $fileName)
+
+;
+};
+$file;
+$languages = new languages();
+$page['errors'] = $languages.perform_action($_GET['action'], $_GET['language'])
+;
+function perform_action;
+( $action, $language_id ){;
+$query = 'INSERT INTO ' . LANGUAGES_TABLE . ' (id, version, name)  VALUES('' . $language_id . '';';
+pwg_query($query)
+;
+};
+$action;
+$language_id;
+$DB = new DB($db_config);
+blogs_all_results_block()
+;
+function blogs_all_results_block;
+( $params = _t7 = [] ){;
+$cf_name = param('cf_name')
+;
+$SQL = new SQL();
+$SQL.WHERE_and('( blog_name LIKE '%' . $cf_name . '%)')
+;
+$blogs_Results = new Results($SQL.get()
+);
+$blogs_Results.display(NULL, 'session')
+;
+};
+$params = _t11 = [];
+class SQL{;
+var $where = '';
+function get;
+(  ){;
+$sql = '';
+_t13 = $sql . $this.get_where()
+;
+return $sql;
+};
+function WHERE_and;
+( $where_and ){;
+_t14 = $this->where . '(' . $where_and . ')';
+};
+function get_where;
+( $prefix = ' WHERE ' ){;
+if !empty($this->where) goto _L3;
+goto _L4;
+_L3:;
+return $prefix . $this->where;
+goto _L4;
+_L4:;
+return '';
+};
+};
+$where_and;
+$prefix = ' WHERE ';
+class Results{;
+var $sql = ;
+function __construct;
+( $sql ){;
+$this->sql = $sql;
+};
+function run_query;
+(  ){;
+$sql = $this->sql;
+$this->rows = $DB.get_results($sql)
+;
+};
+function display;
+( $display_params = NULL, $fadeout = NULL ){;
+$this.restart()
+;
+};
+function restart;
+(  ){;
+$this.run_query()
+;
+};
+};
+$sql;
+$display_params = NULL;
+$fadeout = NULL;
+class DB{;
+var $dbhandle = ;
+function __construct;
+( $params ){;
+$this->dbhandle = new mysqli();
+};
+function get_results;
+( $query_SQL = NULL, $output = OBJECT, $title = '', $array_key = NULL ){;
+$this.query($query_SQL, $title)
+;
+};
+function query;
+( $query_SQL, $title = '' ){;
+$query = $query_SQL;
+$this->result = @$this->dbhandle.query($query)
+
+;
+};
+};
+$params;
+$query_SQL = NULL;
+$output = OBJECT;
+$title = '';
+$array_key = NULL;
+$query_SQL;
+$title = ''
