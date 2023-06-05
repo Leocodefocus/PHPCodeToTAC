@@ -102,9 +102,11 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
         } elseif ($expr instanceof PhpParser\Node\Scalar\String_) {
             $this->processedNodes->attach($expr);
             $tacs = [];
-            // 处理字符串
+            $prettyPrinter = new PhpParser\PrettyPrinter\Standard();
+            $propertyAccess = $prettyPrinter->prettyPrintExpr($expr);
+            // 处理字符串addslashes($expr->value)
             return [
-                "var"=>"'" . $expr->value . "'",
+                "var"=>$propertyAccess,#'"' . $propertyAccess . '"',
                 "tac"=>$tacs
             ];
         } elseif ($expr instanceof PhpParser\Node\Expr\UnaryOp) {
@@ -234,7 +236,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 }
             }
             return [
-                "var"=>implode('', $parts),
+                "var"=>'"' . implode('', $parts) . '"',
                 "tac"=>$tacs
             ];
         } elseif ($expr instanceof PhpParser\Node\Expr\ClassConstFetch){
@@ -414,13 +416,13 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             $tacs = array_merge($tacs, $exprDict["tac"]);
             
             if ($expr->type === PhpParser\Node\Expr\Include_::TYPE_INCLUDE) {
-                $tacs[] = 'include ' . $exprDict["var"];
+                $tacs[] = 'include ' . $exprDict["var"] . ";";
             } elseif ($expr->type === PhpParser\Node\Expr\Include_::TYPE_INCLUDE_ONCE) {
-                $tacs[] = 'include_once ' . $exprDict["var"];
+                $tacs[] = 'include_once ' . $exprDict["var"] . ";";
             } elseif ($expr->type === PhpParser\Node\Expr\Include_::TYPE_REQUIRE) {
-                $tacs[] = 'require ' . $exprDict["var"];
+                $tacs[] = 'require ' . $exprDict["var"] . ";";
             } elseif ($expr->type === PhpParser\Node\Expr\Include_::TYPE_REQUIRE_ONCE) {
-                $tacs[] = 'require_once ' . $exprDict["var"];
+                $tacs[] = 'require_once ' . $exprDict["var"] . ";";
             }
             
             return [
@@ -795,7 +797,11 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             // Recurse into "elseif" branch
         } elseif ($node instanceof PhpParser\Node\Stmt\Else_) {
             $this->processedNodes->attach($node);
-            $code[] = "goto Label for else branch;\n";
+            // Handle the else statement
+            // For example, you might generate code for the statements inside the else block
+            foreach ($node->stmts as $innerStmt) {
+                $code = array_merge($code, $this->generateStatements([$innerStmt]));
+            }
             // Recurse into "else" branch
         } elseif ($node instanceof PhpParser\Node\Stmt\While_) {
             $this->processedNodes->attach($node);
@@ -835,7 +841,9 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             if ($conditionDict !== null && !is_array($conditionDict)) {
                 $code = array_merge($code, $conditionDict["tac"]);
             }
+            $initStmts[] = ";\n";
             $code = array_merge($code, $initStmts);
+            
             $code[] = $startLabel['start'] . ":";
             if ($conditionDict !== null) {
                 if (is_array($conditionDict)) {
@@ -846,6 +854,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                             $code[] = $conditionLabels[$index - 1]['end'] . ":";
                         }
                         $code = array_merge($code, $condition["tac"]);
+                        $code[] = ";\n";
                         $code[] = "if (" . $condition["var"] . ") goto " . $conditionLabels[$index]['start'] . ";";
                         $code[] = "goto " . $loopLabel['end'] . ";";
                     }
@@ -859,6 +868,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             }
             $code[] = $loopLabel['start'] . ":";
             $code = array_merge($code, $stmts);
+            $loopStmts[] = ";\n";
             $code = array_merge($code, $loopStmts);
             if ($conditionDict !== null && !is_array($conditionDict)) {
                 $code[] = "if (" . $conditionDict["var"] . ") goto " . $startLabel['start'] . ";";
@@ -876,10 +886,10 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             $code = array_merge($code,$arrayVarDict["tac"]);
             $stmts = $this->generateStatements($node->stmts);
             $loopLabel = $this->createLabel();
-            $code[] = "foreach " . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . " goto " . $loopLabel['start'] . ";";
+            $code[] = "foreach (" . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . ") goto " . $loopLabel['start'] . ";";
             $code[] = $loopLabel['start'] . ":";
             $code = array_merge($code, $stmts);
-            $code[] = "foreach " . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . " goto " . $loopLabel['start'] . ";";
+            $code[] = "foreach (" . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . ") goto " . $loopLabel['start'] . ";";
             $code[] = $loopLabel['end'] . ":";
         } elseif ($node instanceof PhpParser\Node\Stmt\Class_) {
             $this->processedNodes->attach($node);
@@ -950,7 +960,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             }
             // 进行方法调用
             $tempVar = $this->createTempVar();
-            $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ")";
+            $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
         } elseif ($node instanceof PhpParser\Node\Expr\FuncCall) {
             $this->processedNodes->attach($node);
             $name = $this->handleName($node->name);
@@ -996,15 +1006,30 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             $code = array_merge($code, $exprDict["tac"]);
             
             if ($node->type === PhpParser\Node\Expr\Include_::TYPE_INCLUDE) {
-                $code[] = 'include( ' . $exprDict["var"] . " )";
+                $code[] = 'include( ' . $exprDict["var"] . " );";
             } elseif ($node->type === PhpParser\Node\Expr\Include_::TYPE_INCLUDE_ONCE) {
-                $code[] = 'include_once( ' . $exprDict["var"] . " )";
+                $code[] = 'include_once( ' . $exprDict["var"] . " );";
             } elseif ($node->type === PhpParser\Node\Expr\Include_::TYPE_REQUIRE) {
-                $code[] = 'require( ' . $exprDict["var"] . " )";
+                $code[] = 'require( ' . $exprDict["var"] . " );";
             } elseif ($node->type === PhpParser\Node\Expr\Include_::TYPE_REQUIRE_ONCE) {
-                $code[] = 'require_once( ' . $exprDict["var"] . " )";
+                $code[] = 'require_once( ' . $exprDict["var"] . " );";
             }
         } 
+        elseif ($node instanceof PhpParser\Node\Stmt\Echo_) {
+            $this->processedNodes->attach($node);
+            // Handle 'echo' statement
+            $expressions = $node->exprs;
+            foreach ($expressions as $expression) {
+                // Example: Generate code for each expression
+                $exprDict = $this->handleExpr($expression);
+                $code = array_merge($code,$exprDict["tac"]);
+                $code[] = 'echo ' . $exprDict["var"] . ';';
+            }
+        }
+        // elseif ($node instanceof PhpParser\Node\Stmt) {
+        //     $nodeTacs = $this->generateStatements([$node]);
+        //     $code = array_merge($code,$nodeTacs);
+        // }
         // else {
         //     throw new Exception("Unsupported node type: " . get_class($node));
         // }
@@ -1074,7 +1099,11 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             $prettyPrinter = new PhpParser\PrettyPrinter\Standard();
             $propertyAccess = $prettyPrinter->prettyPrintExpr($name);
             return $propertyAccess;
-        }
+        } elseif ($name instanceof PhpParser\Node\Scalar\Encapsed) {
+            $prettyPrinter = new PhpParser\PrettyPrinter\Standard();
+            $propertyAccess = $prettyPrinter->prettyPrintExpr($name);
+            return $propertyAccess;
+        } 
         // return implode('\\', $name->parts);
         else {
             throw new Exception("Unsupported handleName type: " . get_class($name));
@@ -1206,7 +1235,26 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 $code[] = $endLabel['start'] . ":";
                 // $result[] = ['label' => $ifLabel['start'], 'code' => $code];
                 // $result = array_merge($result, $code);
-            } elseif ($stmt instanceof PhpParser\Node\Stmt\While_) {
+            } elseif ($stmt instanceof PhpParser\Node\Stmt\ElseIf_) {
+                $this->processedNodes->attach($stmt);
+                $exprDict = $this->handleExpr($stmt->cond);
+                $code = array_merge($code,$exprDict["tac"]);
+                $code[] = "elseif (" . $exprDict["var"] . ") {";
+                foreach ($stmt->stmts as $innerStmt) {
+                    $code = array_merge($code, $this->generateStatements([$innerStmt]));
+                }
+                $code[] = "}";
+                // Recurse into "elseif" branch
+            } elseif ($stmt instanceof PhpParser\Node\Stmt\Else_) {
+                $this->processedNodes->attach($stmt);
+                // Handle the else statement
+                // For example, you might generate code for the statements inside the else block
+                foreach ($stmt->stmts as $innerStmt) {
+                    $code = array_merge($code, $this->generateStatements([$innerStmt]));
+                }
+                // Recurse into "else" branch
+            }
+            elseif ($stmt instanceof PhpParser\Node\Stmt\While_) {
                 $this->processedNodes->attach($stmt);
                 // 处理 while 循环
                 $conditionDict = $this->handleExpr($stmt->cond);
@@ -1246,6 +1294,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 if ($conditionDict !== null && $conditionDict !== [] && array_keys($conditionDict)!==range(0, count($conditionDict)-1)) {
                     $code = array_merge($code, $conditionDict["tac"]);
                 }
+                $initStmts[] = ";\n";
                 $code = array_merge($code, $initStmts);
                 $code[] = $startLabel['start'] . ":";
                 if ($conditionDict !== null && $conditionDict !== []) {
@@ -1270,6 +1319,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 }
                 $code[] = $loopLabel['start'] . ":";
                 $code = array_merge($code, $stmts);
+                $loopStmts[] = ";\n";
                 $code = array_merge($code, $loopStmts);
                 if ($conditionDict !== null && $conditionDict !== [] && array_keys($conditionDict)!==range(0, count($conditionDict)-1)) {
                     $code[] = "if (" . $conditionDict["var"] . ") goto " . $startLabel['start'] . ";";
@@ -1287,7 +1337,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 $loopLabel = $this->createLabel();
                 $code = array_merge($code,$valueVarDict["tac"]);
                 $code = array_merge($code,$arrayVarDict["tac"]);
-                $code[] = "foreach " . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . " goto " . $loopLabel['start'] . ";";  
+                $code[] = "foreach (" . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . ") goto " . $loopLabel['start'] . ";";  
                 $code[] = $loopLabel['start'] . ":";
                 $code = array_merge($code, $stmts);
                 //$code[] = "foreach " . $arrayVarDict["var"] . " as " . $valueVarDict["var"] . " goto " . $loopLabel['start'] . ";";  
@@ -1344,11 +1394,18 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 if( $stmt->getDocComment()!== null ){
                     $code[] = $stmt->getDocComment();
                 }
+                
                 $code[] = "function " . $functionName;
+                $params = [];
+                foreach ($stmt->params as $param) {
+                    $paramName = $this->handleNode($param);
+                    $params = array_merge($params,$paramName);
+                }
+                $code[] = "( " . implode(", ",$params) . " ){"; 
                 foreach ($stmt->stmts as $innerStmt) {
                     $code = array_merge($code, $this->generateStatements([$innerStmt]));
                 }
-                $code[] = "end_function " . $functionName;
+                $code[] = "}";
                 // $result[] = ['label' => $functionName, 'code' => $code];
                 // $result = array_merge($result, $code);
             } elseif ($stmt instanceof PhpParser\Node\Stmt\TryCatch) {
@@ -1468,8 +1525,9 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 // 在这里可以根据需要生成相应的三地址码
             
                 // 示例：将'continue'语句添加到三地址码数组
-                $code[] = 'continue';
+                $code[] = 'continue;';
             } elseif ($stmt instanceof PhpParser\Node\Stmt\Switch_) {
+                $this->processedNodes->attach($stmt);
                 // Handle 'switch' statement
                 $cond = $stmt->cond;
                 $condDict = $this->handleExpr($cond);
@@ -1479,13 +1537,18 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                     $caseCond = $case->cond;
                     $caseCondDict = $this->handleExpr($caseCond);
                     $code = array_merge($code,$caseCondDict["tac"]);
-                    $code[] = 'case ' . $caseCondDict["var"] . ':';
+                    if($caseCondDict["var"]!=""){
+                        $code[] = 'case ' . $caseCondDict["var"] . ':';
+                    }else{
+                        $code[] = 'default :';
+                    }
                     $caseStmts = $this->generateStatements($case->stmts);
                     $code = array_merge($code, $caseStmts);
                     $code[] = 'break;';
                 }
                 $code[] = '}';
             } elseif ($stmt instanceof PhpParser\Node\Stmt\Break_) {
+                $this->processedNodes->attach($stmt);
                 // Handle 'break' statement
                 $code[] = 'break;';
             }                   
@@ -1506,6 +1569,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 $code[] = $exprDict["var"];
             } 
             elseif ($stmt instanceof PhpParser\Node\Stmt\Global_) {
+                $this->processedNodes->attach($stmt);
                 // Handle 'global' statement
                 foreach ($stmt->vars as $var) {
                     $varNameDict = $this->handleExpr($var);
@@ -1514,6 +1578,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 }
             }
             elseif ($stmt instanceof PhpParser\Node\Stmt\Unset_) {
+                $this->processedNodes->attach($stmt);
                 // Handle 'unset' statement
                 foreach ($stmt->vars as $var) {
                     $varDict = $this->handleExpr($var);
@@ -1522,6 +1587,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 }
             }
             elseif ($stmt instanceof PhpParser\Node\Stmt\Echo_) {
+                $this->processedNodes->attach($stmt);
                 // Handle 'echo' statement
                 $expressions = $stmt->exprs;
                 foreach ($expressions as $expression) {
@@ -1542,6 +1608,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 continue; // or do nothing
             }            
             elseif ($stmt instanceof PhpParser\Node\Stmt\Do_) {
+                $this->processedNodes->attach($stmt);
                 // Handle do-while loop statement
                 // Example: Generate code for do-while loop
                 $condDict = $this->handleExpr($stmt->cond);
@@ -1551,6 +1618,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 $code[] = '} while (' . $condDict["var"] . ');';
             }
             elseif ($stmt instanceof PhpParser\Node\Stmt\ClassConst) {
+                $this->processedNodes->attach($stmt);
                 // Handle class constant declaration
                 // Example: Generate code for class constant declaration
                 foreach ($stmt->consts as $const) {
@@ -1561,6 +1629,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 }
             }
             elseif ($stmt instanceof PhpParser\Node\Stmt\Static_) {
+                $this->processedNodes->attach($stmt);
                 // Handle static variable declaration
                 // Example: Generate code for static variable declaration
                 foreach ($stmt->vars as $var) {
@@ -1572,6 +1641,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 }
             }
             elseif ($stmt instanceof PhpParser\Node\Stmt\Throw_) {
+                $this->processedNodes->attach($stmt);
                 // Handle throw statement
                 // Example: Generate code for throw statement
                 $exceptionDict = $this->handleExpr($stmt->expr);
@@ -1593,7 +1663,39 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 // 将 trait 引用添加到代码中
                 // 这里我们只是简单地将 trait 引用转换为一个字符串，你可能需要根据你的需求来修改这个处理逻辑
                 $code[] = 'use ' . implode(', ', $traits) . ';';
-            }                                
+            }
+            elseif ($stmt instanceof PhpParser\Node\Expr\Include_) {
+                $this->processedNodes->attach($stmt);
+                $exprDict = $this->handleExpr($stmt->expr);
+                $code = array_merge($code, $exprDict["tac"]);
+                
+                if ($stmt->type === PhpParser\Node\Expr\Include_::TYPE_INCLUDE) {
+                    $code[] = 'include( ' . $exprDict["var"] . " );";
+                } elseif ($stmt->type === PhpParser\Node\Expr\Include_::TYPE_INCLUDE_ONCE) {
+                    $code[] = 'include_once( ' . $exprDict["var"] . " );";
+                } elseif ($stmt->type === PhpParser\Node\Expr\Include_::TYPE_REQUIRE) {
+                    $code[] = 'require( ' . $exprDict["var"] . " );";
+                } elseif ($stmt->type === PhpParser\Node\Expr\Include_::TYPE_REQUIRE_ONCE) {
+                    $code[] = 'require_once( ' . $exprDict["var"] . " );";
+                }
+            }
+            elseif ($stmt instanceof PhpParser\Node\Expr\MethodCall) {
+                $this->processedNodes->attach($stmt);
+                $mName = $this->handleName($stmt->name);
+                // 先处理对象表达式
+                $objectVarDict = $this->handleExpr($stmt->var);     
+                $code = array_merge($code,$objectVarDict["tac"]);       
+                // 然后处理参数列表
+                $argVars = [];
+                foreach ($stmt->args as $arg) {
+                    $argVarDict = $this->handleExpr($arg->value);
+                    $code = array_merge($code,$argVarDict["tac"]);
+                    $argVars[] = $argVarDict["var"];
+                }
+                // 进行方法调用
+                $tempVar = $this->createTempVar();
+                $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
+            }                          
             else {
                 throw new Exception("Unsupported stmt type: " . get_class($stmt));
             }
@@ -1623,11 +1725,15 @@ $file_path = '/home/leo/phpAVT-new/code_examples.php';
 // 1. 创建解析器
 $parser = (new ParserFactory)->create(ParserFactory::PREFER_PHP7);
 
-function phptotac($file_path){
+function readCodeFile($file_path){
+    // 2. 从文件读取PHP源代码
+    $code = file_get_contents($file_path);
+    return $code;
+}
+
+function phptotac($code){
     global $parser;
-    try {
-        // 2. 从文件读取PHP源代码
-        $code = file_get_contents($file_path);
+    try {       
         // 3. 解析源代码
         $stmts = $parser->parse($code);
         // 4. 创建ThreeAddressCodeGenerator
@@ -1646,6 +1752,7 @@ function phptotac($file_path){
         $final_code = preg_replace('/;+$/m',';',$final_code);
         $final_code = preg_replace('/^;\n$/m','',$final_code);
         $final_code = preg_replace('/^};\n$/m','}',$final_code);
+        //$final_code = preg_replace('/(^_L\d{1,10}:);\n/m','${1}\n',$final_code);
         /* echo "<?php\n" . $final_code . "\n?>";
         echo implode("\n",$modifiedStmts);*/
         $final_code = "<?php\n" . $final_code . "\n?>";
@@ -1671,8 +1778,9 @@ function convertPhpToTac($sourceDirectory, $destinationDirectory)
             continue;
         }
         echo $file->getPathname() . "\n";
+        $content = readCodeFile($file->getPathname());
         // 调用你的转换函数
-        $convertedCode = phptotac($file->getPathname());
+        $convertedCode = phptotac($content);
 
         // 获取相对于源目录的相对路径
         $relativePath = substr($file->getPathname(), strlen($sourceDirectory));
@@ -1690,6 +1798,18 @@ function convertPhpToTac($sourceDirectory, $destinationDirectory)
         file_put_contents($destinationFile, $convertedCode);
     }
 }
-// 调用函数
-convertPhpToTac('/home/leo/phpAVT-new/php_src/SQLi/CSZCMS-V1.2.9', '/home/leo/phpAVT-new/php_src/SQLi/CSZCMS-V1.2.9_TAC');
+function parse_dir(){
+    global $argv;
+    $scriptname = array_shift( $argv);
+    $dir = (string) array_pop( $argv);
+    // 调用函数
+    convertPhpToTac($dir, $dir . '_TAC');
+}
+
+// $code = <<<'CODE'
+// <?php $rss = 'test'; 
+// echo $rss;
+// CODE;
+// echo phptotac($code);
+parse_dir();
 ?>
