@@ -129,15 +129,18 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             $argVars = [];
             foreach ($expr->args as $arg) {
                 $argVarDict = $this->handleExpr($arg->value);
-                $argVars[] = $argVarDict["var"];
+                
                 $tacs = array_merge($tacs,$argVarDict["tac"]);
+                $tempVar = $this->createTempVar();
+                $tacs[] = $tempVar . "=" . $argVarDict["var"] . ";";
+                $argVars[] = $tempVar;
             }
-            $tempVar = $this->createTempVar();
+            // $tempVar = $this->createTempVar();
             // $tac = new ThreeAddressInstruction("",$expr->name . "(" . implode(", ", $argVars) . ")","",$tempVar);
-            $tacs[] = $tempVar . " = " . $name . "(" . implode(", ", $argVars) . ");";
+            // $tacs[] = $tempVar . " = " . $name . "(" . implode(", ", $argVars) . ");";
             // return $expr->name . "(" . implode(", ", $argVars) . ")";
             return [
-                "var"=>$tempVar,
+                "var"=>$name . "(" . implode(", ", $argVars) . ")",
                 "tac"=>$tacs
             ];
         } elseif ($expr instanceof PhpParser\Node\Expr\MethodCall) {
@@ -150,15 +153,18 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             $argVars = [];
             foreach ($expr->args as $arg) {
                 $argVarDict = $this->handleExpr($arg->value);
-                $argVars[] = $argVarDict["var"];
+                
                 $tacs = array_merge($tacs,$argVarDict["tac"]);
+                $tempVar = $this->createTempVar();
+                $tacs[] = $tempVar . "=" . $argVarDict["var"] . ";";
+                $argVars[] = $tempVar;
             }
-            $tempVar = $this->createTempVar();
+            //$tempVar = $this->createTempVar();
             //$tac = new ThreeAddressInstruction("",$objectVar["var"] . "." . $expr->name->name . "(" . implode(", ", $argVars) . ")","",$tempVar);
             
-            $tacs[] = $tempVar . " = " . $objectVar["var"] . "." . $mNameDict . "(" . implode(", ", $argVars) . ");";
+            //$tacs[] = $tempVar . " = " . $objectVar["var"] . "." . $mNameDict . "(" . implode(", ", $argVars) . ");";
             return [
-                "var"=>$tempVar,
+                "var"=>$objectVar["var"] . "." . $mNameDict . "(" . implode(", ", $argVars) . ")",
                 "tac"=>$tacs
             ];
         } elseif ($expr instanceof PhpParser\Node\Expr\PropertyFetch) {
@@ -184,7 +190,9 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             foreach ($expr->args as $arg) {
                 $argDict = $this->handleExpr($arg->value);
                 $tacs = array_merge($tacs,$argDict["tac"]);
-                $args[] = $argDict["var"];
+                $tempVar = $this->createTempVar();
+                $tacs[] = $tempVar . "=" . $argDict["var"] . ";";
+                $args[] = $tempVar;
             }
             return [
                 "var"=>"new " . $className . "(" . implode(", ", $args) . ")",
@@ -956,19 +964,24 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
             foreach ($node->args as $arg) {
                 $argVarDict = $this->handleExpr($arg->value);
                 $code = array_merge($code,$argVarDict["tac"]);
-                $argVars[] = $argVarDict["var"];
+                $tempVar = $this->createTempVar();
+                $code[] = $tempVar . "=" . $argVarDict["var"] . ";";
+                $argVars[] = $tempVar;
             }
             // 进行方法调用
-            $tempVar = $this->createTempVar();
-            $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
+            // $tempVar = $this->createTempVar();
+            // $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
+            $code[] = $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
         } elseif ($node instanceof PhpParser\Node\Expr\FuncCall) {
             $this->processedNodes->attach($node);
             $name = $this->handleName($node->name);
             $args = [];
             foreach ($node->args as $arg) {
                 $argsDict = $this->handleExpr($arg->value);
+                $tempVar = $this->createTempVar();
                 $code = array_merge($code,$argsDict["tac"]);
-                $args[] = $argsDict["var"];
+                $code[] = $tempVar . "=" . $argsDict["var"] . ";";
+                $args[] = $tempVar;
             }
             //$tempVar = $this->createTempVar();
             $code[] = $name . "(" . implode(", ", $args) . ")" . ";";
@@ -1350,11 +1363,14 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 $argVars = [];
                 foreach ($stmt->args as $arg) {
                     $argVarDict = $this->handleExpr($arg->value);
+                    $tempVar = $this->createTempVar();
                     $code = array_merge($code,$argVarDict["tac"]);
-                    $argVars[] = $argVarDict["var"];
+                    $code[] = $tempVar. "= " . $argVarDict["var"];
+                    $argVars[] = $tempVar;
                 }
-                $tempVar = $this->createTempVar();
-                $code[] = $tempVar . " = call " . $funcName . "(" . implode(", ", $argVars) . ")";
+                $code[] = $funcName . "(" . implode(", ", $argVars) . ")";
+                //$tempVar = $this->createTempVar();
+                //$code[] = $tempVar . " = call " . $funcName . "(" . implode(", ", $argVars) . ")";
                 // $result[] = ['label' => $tempVar, 'code' => $code];
                 // $result = array_merge($result, $code);
             } elseif ($stmt instanceof PhpParser\Node\Stmt\Class_) {
@@ -1552,14 +1568,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 // Handle 'break' statement
                 $code[] = 'break;';
             }                   
-            elseif ($stmt instanceof PhpParser\Node\Stmt\Expression) {
-                $this->processedNodes->attach($stmt);
-                // 处理表达式语句
-                $exprDict = $this->handleExpr($stmt->expr);
-                $code = array_merge($code,$exprDict["tac"]);
-                // $tempVar = $this->createTempVar();
-                $code[] = $exprDict["var"];
-            } 
+            
             elseif ($stmt instanceof PhpParser\Node\Expr) {
                 $this->processedNodes->attach($stmt);
                 // 处理表达式语句
@@ -1690,12 +1699,22 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
                 foreach ($stmt->args as $arg) {
                     $argVarDict = $this->handleExpr($arg->value);
                     $code = array_merge($code,$argVarDict["tac"]);
-                    $argVars[] = $argVarDict["var"];
+                    $tempVar = $this->createTempVar();
+                    $code[] = $tempVar . "=" . $argVarDict["var"] . ";";
+                    $argVars[] = $tempVar;
                 }
                 // 进行方法调用
-                $tempVar = $this->createTempVar();
-                $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
-            }                          
+                // $tempVar = $this->createTempVar();
+                // $code[] = $tempVar . " = " . $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
+                $code[] = $objectVarDict["var"] . "." . $mName . "(" . implode(", ", $argVars) . ");";
+            }elseif ($stmt instanceof PhpParser\Node\Stmt\Expression) {
+                $this->processedNodes->attach($stmt);
+                // 处理表达式语句
+                $exprDict = $this->handleExpr($stmt->expr);
+                $code = array_merge($code,$exprDict["tac"]);
+                // $tempVar = $this->createTempVar();
+                $code[] = $exprDict["var"];
+            }       
             else {
                 throw new Exception("Unsupported stmt type: " . get_class($stmt));
             }
@@ -1721,7 +1740,7 @@ class ThreeAddressCodeGenerator extends PhpParser\NodeVisitorAbstract {
         return ['start' => $labelStart, 'end' => $labelEnd];
     }
 }
-$file_path = '/home/leo/phpAVT-new/code_examples.php';
+$file_path = '/home/leo/phpAVT-new/phpsa/test_all.php';
 // 1. 创建解析器
 $parser = (new ParserFactory)->create(ParserFactory::PREFER_PHP7);
 
@@ -1805,11 +1824,18 @@ function parse_dir(){
     // 调用函数
     convertPhpToTac($dir, $dir . '_TAC');
 }
-
+function test(){
+    global $file_path;
+    $content = readCodeFile($file_path);
+    $convertedCode = phptotac($content);
+    $desPath = "test_all_tac.php";
+    file_put_contents($desPath,$convertedCode);
+}
 // $code = <<<'CODE'
 // <?php $rss = 'test'; 
 // echo $rss;
 // CODE;
 // echo phptotac($code);
-parse_dir();
+// parse_dir();
+test();
 ?>
